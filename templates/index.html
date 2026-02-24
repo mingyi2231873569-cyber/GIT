@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>代谢物预测 - 胃癌/结直肠癌诊断</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; margin: 40px; background-color: #f5f5f5; }
+        .container { max-width: 700px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { text-align: center; color: #333; }
+        .feature-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }
+        input[type="number"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; }
+        button:hover { background-color: #45a049; }
+        .result { margin-top: 30px; padding: 20px; background-color: #e8f5e8; border-left: 4px solid #4CAF50; border-radius: 4px; display: none; }
+        .error { background-color: #ffebee; border-left-color: #f44336; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        .chart-container { height: 300px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>血浆氨基酸代谢物预测模型</h1>
+        <form id="prediction-form">
+            <div class="feature-group">
+                {% for feature in features %}
+                <label for="{{ feature }}">{{ feature }}:</label>
+                <input type="number" step="any" name="{{ feature }}" id="{{ feature }}" required>
+                {% endfor %}
+            </div>
+            <button type="submit">开始预测</button>
+        </form>
+
+        <div id="result" class="result">
+            <h3>预测结果</h3>
+            <p><strong>预测类别：</strong> <span id="predicted-class"></span></p>
+            <div class="chart-container">
+                <canvas id="probabilityChart"></canvas>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>类别</th><th>概率</th></tr>
+                </thead>
+                <tbody id="probability-table"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let chart;
+
+        document.getElementById('prediction-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const resultDiv = document.getElementById('result');
+            const predictedSpan = document.getElementById('predicted-class');
+            const tableBody = document.getElementById('probability-table');
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    predictedSpan.textContent = data.predicted_class;
+
+                    // 更新表格
+                    tableBody.innerHTML = '';
+                    for (const [cls, prob] of Object.entries(data.probabilities)) {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `<td>${cls}</td><td>${(prob * 100).toFixed(2)}%</td>`;
+                        tableBody.appendChild(row);
+                    }
+
+                    // 更新柱状图
+                    const ctx = document.getElementById('probabilityChart').getContext('2d');
+                    const labels = Object.keys(data.probabilities);
+                    const probValues = Object.values(data.probabilities).map(v => v * 100);
+
+                    if (chart) {
+                        chart.destroy();
+                    }
+
+                    chart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: '概率 (%)',
+                                data: probValues,
+                                backgroundColor: [
+                                    'rgba(75, 192, 192, 0.6)',
+                                    'rgba(255, 99, 132, 0.6)',
+                                    'rgba(54, 162, 235, 0.6)'
+                                ],
+                                borderColor: [
+                                    'rgba(75, 192, 192, 1)',
+                                    'rgba(255, 99, 132, 1)',
+                                    'rgba(54, 162, 235, 1)'
+                                ],
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 100,
+                                    title: {
+                                        display: true,
+                                        text: '概率 (%)'
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: { display: false }
+                            }
+                        }
+                    });
+
+                    resultDiv.style.display = 'block';
+                    resultDiv.classList.remove('error');
+                } else {
+                    predictedSpan.textContent = data.error;
+                    tableBody.innerHTML = '';
+                    resultDiv.style.display = 'block';
+                    resultDiv.classList.add('error');
+                }
+            } catch (error) {
+                predictedSpan.textContent = '网络或服务器错误';
+                tableBody.innerHTML = '';
+                resultDiv.style.display = 'block';
+                resultDiv.classList.add('error');
+            }
+        });
+    </script>
+</body>
+</html>
